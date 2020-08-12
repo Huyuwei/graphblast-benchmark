@@ -7,80 +7,60 @@
 
 #include <cstdio>
 #include <cstdlib>
-
-// #include <cuda_profiler_api.h>
-
 #include <boost/program_options.hpp>
 
 #include "graphblas/graphblas.hpp"
 #include "graphblas/algorithm/bfs.hpp"
 #include "test/test.hpp"
 
+#include "graphblas/io/data_loader.h"
+
+using namespace graphblas::io;
+
+
 bool debug_;
 bool memory_;
 
 int main(int argc, char** argv) {
-  std::vector<graphblas::Index> row_indices;
-  std::vector<graphblas::Index> col_indices;
-  std::vector<float> values;
-  graphblas::Index nrows, ncols, nvals;
-
-  // Parse arguments
-  bool debug;
-  bool transpose;
-  bool mtxinfo;
-  int  directed;
-  int  niter;
-  int  source;
-  char* dat_name;
-  po::variables_map vm;
-
   // Read in sparse matrix
   if (argc < 2) {
-    fprintf(stderr, "Usage: %s [matrix-market-filename]\n", argv[0]);
-    exit(1);
-  } else {
-    parseArgs(argc, argv, &vm);
-    debug     = vm["debug"    ].as<bool>();
-    transpose = vm["transpose"].as<bool>();
-    mtxinfo   = vm["mtxinfo"  ].as<bool>();
-    directed  = vm["directed" ].as<int>();
-    niter     = vm["niter"    ].as<int>();
-    source    = vm["source"   ].as<int>();
-
-    // This is an imperfect solution, because this should happen in
-    // desc.loadArgs(vm) instead of application code!
-    // TODO(@ctcyang): fix this
-    readMtx(argv[argc-1], &row_indices, &col_indices, &values, &nrows, &ncols,
-        &nvals, directed, mtxinfo, &dat_name);
+    std::cout << "Usage: " << argv[0] << " [scipy-npz-filename]" << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  CSRMatrix<float> csr_matrix_float = load_csr_matrix_from_float_npz(std::string(argv[argc-1]));
+  graphblas::Index nrows = csr_matrix_float.num_rows;
+  graphblas::Index ncols = csr_matrix_float.num_cols;
+  std::vector<float> vals = csr_matrix_float.adj_data;
+  graphblas::Index nvals = vals.size();
+  std::vector<graphblas::Index> col_indices;
+  std::copy(csr_matrix_float.adj_indices.begin(), csr_matrix_float.adj_indices.end(),
+            std::back_inserter(col_indices));
+  std::vector<graphblas::Index> row_indices(nvals);
+  for (size_t row_idx = 0; row_idx < nrows; row_idx++) {
+    size_t start = csr_matrix_float.adj_indptr[row_idx];
+    size_t end = csr_matrix_float.adj_indptr[row_idx+1];
+    for (size_t i = start; i < end; i++) {
+      row_indices[i] = row_idx;
+    }
   }
 
-  // Descriptor desc
+  // Arguments
+  int directed = 1;
+  int num_runs = 5;
+  int source = 0;
+
+  // Descriptor
   graphblas::Descriptor desc;
+  po::variables_map vm;
+  parseArgs(argc, argv, &vm);
   CHECK(desc.loadArgs(vm));
-  if (transpose)
-    CHECK(desc.toggle(graphblas::GrB_INP1));
 
   // Matrix A
   graphblas::Matrix<float> a(nrows, ncols);
-  CHECK(a.build(&row_indices, &col_indices, &values, nvals, GrB_NULL,
-      dat_name));
-  CHECK(a.nrows(&nrows));
-  CHECK(a.ncols(&ncols));
-  CHECK(a.nvals(&nvals));
-  if (debug) CHECK(a.print());
+  a.build(&row_indices, &col_indices, &vals, nvals, GrB_NULL, NULL);
 
   // Vector v
   graphblas::Vector<float> v(nrows);
-
-  // Cpu BFS
-  CpuTimer bfs_cpu;
-  graphblas::Index* h_bfs_cpu = reinterpret_cast<graphblas::Index*>(
-      malloc(nrows*sizeof(graphblas::Index)));
-  int depth = 10000;
-  bfs_cpu.Start();
-  int d = graphblas::algorithm::bfsCpu(source, &a, h_bfs_cpu, depth, transpose);
-  bfs_cpu.Stop();
 
   // Warmup
   CpuTimer warmup;
@@ -88,37 +68,22 @@ int main(int argc, char** argv) {
   graphblas::algorithm::bfs(&v, &a, source, &desc);
   warmup.Stop();
 
-  std::vector<float> h_bfs_gpu;
-  CHECK(v.extractTuples(&h_bfs_gpu, &nrows));
-  VERIFY_LIST(h_bfs_cpu, h_bfs_gpu, nrows);
-
   // Benchmark
   graphblas::Vector<float> y(nrows);
   CpuTimer vxm_gpu;
-  // cudaProfilerStart();
   vxm_gpu.Start();
   float tight = 0.f;
   float val;
-  for (int i = 0; i < niter; i++) {
+  for (int i = 0; i < num_runs; i++) {
     val = graphblas::algorithm::bfs(&y, &a, source, &desc);
     tight += val;
   }
-  // cudaProfilerStop();
   vxm_gpu.Stop();
 
-  float flop = 0;
-  std::cout << "cpu, " << bfs_cpu.ElapsedMillis() << ", \n";
-  std::cout << "warmup, " << warmup.ElapsedMillis() << ", " <<
-    flop/warmup.ElapsedMillis()/1000000.0 << "\n";
+  std::cout << "warmup: " << warmup.ElapsedMillis() << " ms" <<std::endl;
   float elapsed_vxm = vxm_gpu.ElapsedMillis();
-  std::cout << "tight, " << tight/niter << "\n";
-  std::cout << "vxm, " << elapsed_vxm/niter << "\n";
-
-  if (niter) {
-    std::vector<float> h_bfs_gpu2;
-    CHECK(y.extractTuples(&h_bfs_gpu2, &nrows));
-    VERIFY_LIST(h_bfs_cpu, h_bfs_gpu2, nrows);
-  }
+  // std::cout << "tight: " << tight / num_runs << " ms" <<std::endl;
+  std::cout << "run: " << elapsed_vxm / num_runs << " ms" <<std::endl;
 
   return 0;
 }

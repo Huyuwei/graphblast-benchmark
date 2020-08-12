@@ -5,13 +5,15 @@ include common.mk
 #-------------------------------------------------------------------------------
 
 # Includes
-INC += -I$(MGPU_DIR) -I$(CUB_DIR) -I$(BOOST_DIR) -I$(GRB_DIR)
+INC += -I$(MGPU_DIR) -I$(CUB_DIR) -I$(BOOST_DIR) -I$(GRB_DIR) \
+	   -I$(GRAPHBLAS_ROOT_PATH) -I/work/shared/common/research/graphblas/software/cnpy
 
 #-------------------------------------------------------------------------------
 # Dependency Lists
 #-------------------------------------------------------------------------------
 
-all: gbfs gdiameter gsssp glgc gmis ggc ggc_cusparse gpr gtc
+# all: gbfs gdiameter gsssp glgc gmis ggc ggc_cusparse gpr gtc
+all: gbfs gsssp gpr
 
 gbfs: example/*
 	mkdir -p bin

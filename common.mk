@@ -8,11 +8,7 @@ BOOST_DIR = /data/ctcyang/boost_1_58_0/
 GRB_DIR = $(dir $(lastword $(MAKEFILE_LIST)))
 
 BOOST_DEPS = /data/ctcyang/boost_1_58_0/stage/lib/
-GRB_DEPS = ext/moderngpu/src/mgpucontext.cu \
-           ext/moderngpu/src/mgpuutil.cpp
+GRB_DEPS = ext/moderngpu/src/mgpucontext.cu ext/moderngpu/src/mgpuutil.cpp
 
-LIBS = -L${BOOST_DEPS} \
-			 -lboost_program_options \
-       -lcublas \
-			 -lcusparse \
-			 -lcurand
+LIBS = -L${BOOST_DEPS} -lboost_program_options -lcublas -lcusparse -lcurand \
+	   -L/work/shared/common/research/graphblas/software/cnpy/build -lcnpy
