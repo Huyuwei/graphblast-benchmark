@@ -45,7 +45,6 @@ int main(int argc, char** argv) {
   }
 
   // Arguments
-  int directed = 1;
   int num_runs = 5;
   int source = 0;
 
